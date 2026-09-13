@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cricklake"
+version = "1.0.0"
+description = "Cricket win-probability lakehouse: ball-by-ball big data pipeline, live scoring and player impact"
+requires-python = ">=3.10"
+dependencies = [
+    "pyspark==4.2.0",
+    "delta-spark==4.4.0",
+    "deltalake>=1.0",
+    "pandas>=2.2,<3",  # PySpark 4.2 does not fully support pandas 3 yet
+    "pyarrow>=16",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pyyaml>=6",
+    "streamlit>=1.40",
+    "plotly>=5.24",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501", "B008"]

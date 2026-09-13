@@ -1,0 +1,43 @@
+# Central configuration for the Cricket Win-Probability Lakehouse.
+# Every path is relative to the project root (override root with CRICKLAKE_HOME).
+
+paths:
+  landing: data/landing            # raw files exactly as downloaded / packed
+  lakehouse: data/lakehouse        # Delta tables: bronze/ silver/ gold/ quality/
+  checkpoints: data/checkpoints    # Structured Streaming checkpoints (exactly-once bookkeeping)
+  models: data/models              # trained Spark ML pipelines + model cards
+  stream_inbox: data/stream/inbox  # live ball-by-ball events land here (file-based "topic")
+  runs: data/runs                  # orchestrator run reports
+  ground_truth: data/ground_truth  # simulator-only latent player skills (never read by the pipeline)
+
+simulation:
+  seed: 42
+  scale: 1                         # 1 = 8 leagues x 15 seasons (~7k matches, ~1.7M deliveries)
+
+source:
+  base_url: https://cricsheet.org/downloads
+  dataset: all_json                # every match Cricsheet publishes (Tests, ODIs, T20s, leagues)
+  shard_size: 400                  # matches per packed NDJSON shard (fixes the small-files problem)
+
+spark:
+  app_name: cricket-winprob-lakehouse
+  master: local[*]
+  driver_memory: 8g
+  shuffle_partitions: 24
+
+model:
+  # Win probability is format-specific: we model men's & women's T20 cricket.
+  match_types: [T20, IT20]
+  train_until: "2023-12-31"        # time-based split: train on the past ...
+  valid_until: "2024-12-31"        # ... tune/calibrate on the next season ...
+                                   # ... and test on everything after (2025+)
+  negative_sample_fraction: 1.0
+  gbt:
+    max_iter: 80
+    max_depth: 6
+    step_size: 0.1
+    subsampling_rate: 0.8
+
+streaming:
+  trigger_seconds: 2
+  swing_alert_threshold: 0.12      # |ΔWP| on a single ball that counts as a momentum swing

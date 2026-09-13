@@ -1,0 +1,15 @@
+.venv/
+.venv-airflow/
+.airflow/
+.claude/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+data/
+spark-warehouse/
+metastore_db/
+derby.log
+.DS_Store
+.ipynb_checkpoints/
