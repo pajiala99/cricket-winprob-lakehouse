@@ -229,17 +229,33 @@ tests/                              simulator, packer, silver MERGE, DQ, streami
 
 ---
 
-## Using real Cricsheet data
+## Real Cricsheet data
 
-1. In a browser, download a zip from <https://cricsheet.org/downloads/> (for example `ipl_json.zip` or
-   `t20s_json.zip`) into `data/landing/downloads/real/`.
-2. Build the lakehouse from it (there is no ground truth for real players, so validation is skipped):
+The same pipeline runs on real ball-by-ball data through a separate profile (`conf/real.yaml`) with its own
+lakehouse under `data/real/`, so the simulated build stays untouched. cricsheet.org blocks automated downloads,
+so `real-download` fetches the match files from a public Hugging Face mirror of Cricsheet and packages them
+exactly like the official per-competition zips. The mirror rate-limits anonymous downloads, so the first run
+takes a while.
 
 ```bash
-.venv/bin/python -m cricklake.orchestrate --fresh --skip simulate validate_wpa --pattern "real/*.zip"
+make real-download    # IPL, T20 internationals, BBL, WBBL, PSL, CPL, SA20, ILT20, MLC
+make real-pipeline    # full build; WPA validation is skipped because real players have no ground truth
+make real-dashboard
 ```
 
-Check Cricsheet's licence terms before redistributing their data.
+Replay a real match through the streaming scorer, for example the latest final (two terminals):
+
+```bash
+make real-live-score
+make real-live-feed
+```
+
+Real data proved its worth straight away. The silver quality gate blocked 8 IPL, CPL and BBL chases whose
+totals passed the target by more than one hit. All were rain-affected games, where Cricsheet records the D/L
+par score at the moment play was abandoned. The rule was wrong, not the data. It now skips D/L games, and win
+probability pins a won chase only on the innings' final ball.
+
+Data: [Cricsheet](https://cricsheet.org). Check Cricsheet's licence terms before redistributing the data.
 
 ---
 
@@ -260,11 +276,14 @@ make lint
 
 ## Limitations and next steps
 
-- The data is simulated. The scoring patterns are plausible T20 cricket, but they are not calibrated to real
-  leagues.
+- The headline results and the WPA validation use simulated data: plausible T20 cricket, but not calibrated to
+  real leagues. The real-data profile runs the same pipeline on real matches, but real players have no ground
+  truth, so WPA can't be validated there.
 - Spark runs in local mode. The same jobs would run on Databricks, EMR or Dataproc by pointing paths at object
   storage.
 - The live feed uses a file-based inbox. In production it would be Kafka, and only the `readStream` source line
   changes.
-- The Airflow DAGs compile but were not executed in an Airflow deployment in this repo.
-- Model ideas: batting-lineup strength, bowler overs remaining, team form.
+- Airflow was exercised with `airflow dags test` (the daily DAG, 9 of 9 tasks) rather than a long-running
+  scheduler and executor.
+- Model ideas: batting-lineup strength, bowler overs remaining, team form, and smoother tree outputs (monotonic
+  constraints) so ΔWP jumps less.
