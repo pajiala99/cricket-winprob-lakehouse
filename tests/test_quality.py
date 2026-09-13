@@ -50,3 +50,15 @@ def test_match_state_rolling_window_and_json_roundtrip():
 def test_airflow_dag_file_compiles():
     py_compile.compile(str(Path(__file__).parents[1] / "orchestration/airflow/dags/cricket_lakehouse_dag.py"),
                        doraise=True)
+
+
+def test_unique_check_counts_duplicates_with_null_keys(spark, tmp_path, monkeypatch):
+    cfg = make_settings(tmp_path)
+    monkeypatch.setattr(checks, "get_settings", lambda: cfg)
+    rows = [("p1", None), ("p1", None), ("p2", "IPL")]  # real data: internationals without a series name
+    spark.createDataFrame(rows, "player_id string, event_name string") \
+        .write.format("delta").save(cfg.table("gold", "player_impact"))
+    with pytest.raises(DataQualityError):
+        checks.run_checks(spark, [Check("pk", "gold.player_impact", "unique", "player_id, event_name")], "test")
+    recorded = spark.read.format("delta").load(cfg.table("quality", "dq_results")).first()
+    assert recorded.failing_rows == 1  # exactly one duplicate, not "every row with a NULL key"

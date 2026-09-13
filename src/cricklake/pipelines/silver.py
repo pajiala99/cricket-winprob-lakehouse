@@ -51,7 +51,10 @@ def conform_matches(df: DataFrame, aliases: DataFrame | None) -> DataFrame:
         .cast("date").alias("match_date"),
         F.col("info.season").alias("season"),
         F.expr("try_cast(substring(info.season, 1, 4) AS INT)").alias("season_year"),
-        F.col("info.event.name").alias("event_name"),
+        # some real internationals carry no series name; a NULL key would break joins and uniqueness downstream
+        F.coalesce(F.col("info.event.name"),
+                   F.concat(F.initcap("info.team_type"), F.lit(" "), F.col("info.match_type"), F.lit(" (no event name)")),
+                   F.lit("Unnamed event")).alias("event_name"),
         F.col("info.event.match_number").alias("match_number"),
         F.col("info.event.stage").alias("stage"),
         F.col("info.gender").alias("gender"),

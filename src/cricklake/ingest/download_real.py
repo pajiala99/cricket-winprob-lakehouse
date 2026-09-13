@@ -11,6 +11,7 @@ Data: Cricsheet (https://cricsheet.org), attribution required.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import zipfile
 
@@ -39,12 +40,21 @@ def main(argv=None) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     counts = {}
     for competition in args.competitions:
-        files = sorted((mirror / competition).glob("*.json"))
+        # The mirror nests some competitions in part_* subfolders and repeats matches across them:
+        # keep one file per match id, preferring the highest Cricsheet revision.
+        files: dict[str, tuple[int, object]] = {}
+        for f in sorted((mirror / competition).rglob("*.json")):
+            try:
+                revision = int(json.loads(f.read_bytes()).get("meta", {}).get("revision") or 0)
+            except (json.JSONDecodeError, ValueError):
+                revision = -1  # still packaged; the pack step moves malformed documents to rejected/
+            if f.name not in files or revision > files[f.name][0]:
+                files[f.name] = (revision, f)
         target = out_dir / f"{competition}.zip"
         tmp = target.with_name(target.name + ".tmp")
         with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=5) as zf:
-            for f in files:
-                zf.write(f, arcname=f.name)
+            for name, (_, f) in sorted(files.items()):
+                zf.write(f, arcname=name)
         tmp.replace(target)
         counts[competition] = len(files)
         log.info("%-10s %5d matches -> %s", competition, len(files), target)

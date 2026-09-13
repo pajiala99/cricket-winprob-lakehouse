@@ -91,7 +91,10 @@ def _evaluate(spark: SparkSession, c: Check) -> tuple[int, int]:
     if c.kind == "expect":
         row = spark.sql(f"SELECT count_if(NOT coalesce(({c.expr}), false)), count(*) FROM {view}").first()
     elif c.kind == "unique":
-        row = spark.sql(f"SELECT count(*) - count(DISTINCT {c.expr}), count(*) FROM {view}").first()
+        # SELECT DISTINCT treats NULLs as equal; count(DISTINCT a, b) would silently skip rows with a NULL key
+        row = spark.sql(f"""
+            SELECT (SELECT count(*) FROM {view}) - (SELECT count(*) FROM (SELECT DISTINCT {c.expr} FROM {view})),
+                   (SELECT count(*) FROM {view})""").first()
     elif c.kind == "foreign_key":
         child_col, parent = (s.strip() for s in c.expr.split("->"))
         p_layer, p_name, p_col = parent.split(".")
