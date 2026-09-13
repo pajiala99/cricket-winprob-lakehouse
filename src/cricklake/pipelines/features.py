@@ -125,10 +125,13 @@ def build_ball_state(spark: SparkSession, cfg: Settings) -> DataFrame:
         F.col("legal_ball_no").cast("int").alias("legal_balls"),
         F.sum("runs_total").over(recent).cast("int").alias("runs_last_30"),
         F.sum(wicket).over(recent).cast("int").alias("wickets_last_30"),
+        (F.col("delivery_no") == F.max("delivery_no").over(Window.partitionBy("match_id", "innings_no")))
+        .alias("is_innings_end"),
     )
     starts = base.filter("delivery_no = 1").select(
         *IDENTITY, *context,
         F.lit(0).alias("delivery_no"), F.lit(0).alias("over_no"), F.lit("start").alias("phase"),
+        F.lit(False).alias("is_innings_end"),
         *[F.lit(None).cast("string").alias(c) for c in ("batter", "batter_id", "bowler", "bowler_id")],
         F.lit(0).alias("runs_batter"), F.lit(0).alias("runs_total"),
         *[F.lit(False).alias(c) for c in ("is_legal", "is_wicket", "is_four", "is_six", "bowler_wicket")],

@@ -24,14 +24,16 @@ def main(argv=None) -> dict:
     source = cfg["source"]
     ap = argparse.ArgumentParser(description="Download real Cricsheet data from the Hugging Face mirror")
     ap.add_argument("--competitions", nargs="+", default=source.get("competitions", ["ipl_json"]))
-    ap.add_argument("--workers", type=int, default=16)
+    ap.add_argument("--workers", type=int, default=4, help="parallel downloads (the mirror rate-limits anonymous IPs)")
+    ap.add_argument("--skip-download", action="store_true", help="only package files already in the local mirror")
     args = ap.parse_args(argv)
 
-    from huggingface_hub import snapshot_download
-
     mirror = cfg.landing.parent / "hf_mirror"
-    snapshot_download(source["mirror_repo"], repo_type="dataset", local_dir=str(mirror),
-                      allow_patterns=[f"{c}/*.json" for c in args.competitions], max_workers=args.workers)
+    if not args.skip_download:
+        from huggingface_hub import snapshot_download
+
+        snapshot_download(source["mirror_repo"], repo_type="dataset", local_dir=str(mirror),
+                          allow_patterns=[f"{c}/*.json" for c in args.competitions], max_workers=args.workers)
 
     out_dir = cfg.landing / "downloads" / "cricsheet"
     out_dir.mkdir(parents=True, exist_ok=True)

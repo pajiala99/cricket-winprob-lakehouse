@@ -53,10 +53,14 @@ SILVER_CHECKS = [
           SELECT match_id, innings_no, over_no, max(balls_per_over) AS balls_per_over,
                  sum(CAST(is_legal AS INT)) AS legal_balls
           FROM silver_deliveries GROUP BY match_id, innings_no, over_no)""", severity="warn", tolerance=0.01),
+    # Rain-affected (D/L) games are excluded: their recorded target is the par score when play was abandoned,
+    # which the chasing side can pass mid-innings and keep batting (found on real CPL/IPL/BBL data).
     Check("chase_stops_at_target", "silver.deliveries", "sql", """
-        SELECT count_if(runs > target_runs + 6), count(*) FROM (
+        SELECT count_if(c.runs > c.target_runs + 6), count(*) FROM (
           SELECT match_id, max(target_runs) AS target_runs, sum(runs_total) AS runs
-          FROM silver_deliveries WHERE innings_no = 2 AND target_runs IS NOT NULL GROUP BY match_id)"""),
+          FROM silver_deliveries WHERE innings_no = 2 AND target_runs IS NOT NULL GROUP BY match_id) c
+        JOIN silver_matches m ON m.match_id = c.match_id
+        WHERE m.method IS NULL"""),
 ]
 
 GOLD_CHECKS = [

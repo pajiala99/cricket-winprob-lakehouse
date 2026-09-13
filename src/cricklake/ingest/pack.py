@@ -75,7 +75,8 @@ def pack(pattern: str = "**/*.zip", shard_size: int | None = None, workers: int 
         log.info("Nothing new in %d zip(s); manifest already covers %d matches", len(zips), len(manifest))
         return {"batch_id": None, "matches": 0, "rejected": 0, "shards": 0}
 
-    batch_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+    # timestamp + random suffix: two runs in the same second must not share (and crash on) one batch folder
+    batch_id = f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{os.urandom(3).hex()}"
     out_dir = packed / batch_id
     out_dir.mkdir(parents=True)
     size = shard_size or get_settings()["source"]["shard_size"]

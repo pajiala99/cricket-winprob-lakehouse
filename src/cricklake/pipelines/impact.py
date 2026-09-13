@@ -26,12 +26,18 @@ MODEL_OUTPUT_COLS = ("features", "scaled_features", "rawPrediction", "probabilit
 
 
 def apply_terminal_states(df: DataFrame) -> DataFrame:
-    """The model estimates uncertain states; a finished chase is certain, so pin it to 1, 0.5 (tie) or 0."""
+    """The model estimates uncertain states; a finished chase is certain, so pin it to 1, 0.5 (tie) or 0.
+
+    A chase normally ends the moment the target is reached, except in rain-affected (D/L) games, where the
+    recorded target is the par score when play was abandoned and can be passed mid-innings. The batch table
+    therefore pins only the innings' final ball; live scoring (no is_innings_end column) pins at the target.
+    """
     inn2 = F.col("innings_no") == 2
+    ended = F.col("is_innings_end") if "is_innings_end" in df.columns else F.lit(True)
     finished = (F.col("wickets_in_hand") <= 0) | (F.col("balls_remaining") <= 0)
     return df.withColumn(
         "win_prob",
-        F.when(inn2 & (F.col("cum_runs") >= F.col("target")), F.lit(1.0))
+        F.when(inn2 & ended & (F.col("cum_runs") >= F.col("target")), F.lit(1.0))
         .when(inn2 & finished & (F.col("cum_runs") == F.col("target") - 1), F.lit(0.5))
         .when(inn2 & finished, F.lit(0.0))
         .otherwise(F.col("model_win_prob")),
