@@ -250,10 +250,32 @@ make real-live-score
 make real-live-feed
 ```
 
-Real data proved its worth straight away. The silver quality gate blocked 8 IPL, CPL and BBL chases whose
-totals passed the target by more than one hit. All were rain-affected games, where Cricsheet records the D/L
-par score at the moment play was abandoned. The rule was wrong, not the data. It now skips D/L games, and win
-probability pins a won chase only on the innings' final ball.
+**Results on real data.** The build covers 8,852 men's and women's matches from February 2005 to April 2026
+(2,026,949 balls). The model trains on matches up to 2023, is tuned on 2024 and tested on 2025–26. The full
+rebuild takes 3 minutes, and all 19 data-quality checks pass.
+
+| On unseen 2025–26 matches | Gradient-boosted trees (champion) | Logistic regression |
+|---|---|---|
+| Log loss | **0.476** | 0.500 |
+| Brier skill score | **35.9%** | 32.0% |
+| AUC | **0.845** | 0.825 |
+| Calibration error | **0.8 pp** | 1.2 pp |
+
+Accuracy climbs from 61% early in the first innings to 90% in the last five overs of a chase. These scores
+come from a different dataset than the simulated results above, so the two sets aren't directly comparable.
+
+Real data also exposed three problems the simulation never produced:
+
+- **Rain rules.** The silver gate blocked 8 IPL, CPL and BBL chases that passed their target by more than one
+  hit. They were rain-affected games, where Cricsheet records the D/L par score at the moment play stopped. The
+  rule was wrong, not the data: it now skips D/L games, and win probability pins a won chase only on the
+  innings' final ball.
+- **Unnamed events.** The gold gate flagged 1,459 "duplicate" player-seasons. 66 internationals have no series
+  name, and those NULL keys both split the player-impact join and fooled `count(DISTINCT …)`. Silver now names
+  such events, and uniqueness checks are NULL-safe.
+- **Nested files.** The mirror stores T20 internationals in `part_*` subfolders with repeated files. Packaging
+  only the top level would have silently dropped about 3,000 matches; it now searches subfolders and keeps one
+  file per match.
 
 Data: [Cricsheet](https://cricsheet.org). Check Cricsheet's licence terms before redistributing the data.
 
