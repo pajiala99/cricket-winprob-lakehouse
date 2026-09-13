@@ -3,7 +3,9 @@
 **An end-to-end big data platform that turns ball-by-ball cricket data into live win probabilities and a
 validated player-impact metric (Win Probability Added).**
 
-`PySpark 4.2` · `Delta Lake 4.4` · `Spark Structured Streaming` · `Spark MLlib` · `Airflow` · `Streamlit` · `pytest` · `GitHub Actions`
+[![ci](https://github.com/pajiala99/cricket-winprob-lakehouse/actions/workflows/ci.yml/badge.svg)](https://github.com/pajiala99/cricket-winprob-lakehouse/actions/workflows/ci.yml)
+
+`PySpark 4.2` · `Delta Lake 4.4` · `Spark Structured Streaming` · `Spark MLlib` · `Airflow 3` · `Streamlit` · `pytest` · `GitHub Actions`
 
 Most portfolio pipelines stop at "load CSV, aggregate, plot". This one covers the whole lifecycle a data
 platform team owns:
@@ -134,6 +136,14 @@ make incremental
 ```
 
 Run a subset or resume: `python -m cricklake.orchestrate --only train impact`, or `--from features`.
+
+Airflow 3 (separate virtualenv, pinned with Airflow's official constraints). `airflow-test` runs the daily DAG once,
+end to end, without a scheduler. Locally all 9 tasks succeeded in about 3 minutes.
+
+```bash
+make airflow-setup
+make airflow-test
+```
 
 ---
 

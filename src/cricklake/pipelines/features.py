@@ -95,7 +95,10 @@ def add_state_features(df: DataFrame) -> DataFrame:
 
 def build_ball_state(spark: SparkSession, cfg: Settings) -> DataFrame:
     types = cfg["model"]["match_types"]
-    matches = spark.read.format("delta").load(cfg.table("silver", "matches")).filter(F.col("match_type").isin(types))
+    # standard 20-over, 6-ball-over cricket only (real data also holds formats like The Hundred)
+    matches = (spark.read.format("delta").load(cfg.table("silver", "matches"))
+               .filter(F.col("match_type").isin(types) & (F.col("balls_per_over") == 6)
+                       & (F.coalesce(F.col("scheduled_overs"), F.lit(20)) == 20)))
     deliveries = (spark.read.format("delta").load(cfg.table("silver", "deliveries"))
                   .filter(F.col("match_type").isin(types) & ~F.col("is_super_over") & F.col("innings_no").isin(1, 2)))
     par = venue_par(matches, deliveries)

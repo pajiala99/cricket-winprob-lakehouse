@@ -1,4 +1,8 @@
-"""Configuration loading and lakehouse path helpers."""
+"""Configuration loading and lakehouse path helpers.
+
+A config file may start with `extends: <other.yaml>` and override only what differs (see conf/real.yaml).
+Select a profile with CRICKLAKE_CONFIG=conf/real.yaml.
+"""
 
 from __future__ import annotations
 
@@ -11,9 +15,26 @@ from typing import Any
 import yaml
 
 PROJECT_ROOT = Path(os.environ.get("CRICKLAKE_HOME", Path(__file__).resolve().parents[2]))
-CONFIG_FILE = Path(os.environ.get("CRICKLAKE_CONFIG", PROJECT_ROOT / "conf" / "pipeline.yaml"))
+_config_env = os.environ.get("CRICKLAKE_CONFIG")
+CONFIG_FILE = (Path(_config_env) if Path(_config_env).is_absolute() else PROJECT_ROOT / _config_env) \
+    if _config_env else PROJECT_ROOT / "conf" / "pipeline.yaml"
 
 LAYERS = ("bronze", "silver", "gold", "quality")
+
+
+def _merge(base: dict, override: dict) -> dict:
+    merged = dict(base)
+    for key, value in override.items():
+        merged[key] = _merge(merged[key], value) \
+            if isinstance(value, dict) and isinstance(merged.get(key), dict) else value
+    return merged
+
+
+def load_config(path: Path) -> dict[str, Any]:
+    with open(path) as fh:
+        raw = yaml.safe_load(fh) or {}
+    parent = raw.pop("extends", None)
+    return _merge(load_config(path.parent / parent), raw) if parent else raw
 
 
 @dataclass(frozen=True)
@@ -63,5 +84,4 @@ class Settings:
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    with open(CONFIG_FILE) as fh:
-        return Settings(yaml.safe_load(fh))
+    return Settings(load_config(CONFIG_FILE))

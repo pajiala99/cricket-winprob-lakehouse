@@ -152,8 +152,10 @@ def worm(balls: pd.DataFrame, title: str, n_labels: int = 3) -> go.Figure:
 
 # ---------------------------------------------------------------------------------------------- page
 st.title("🏏 Cricket Win-Probability Lakehouse")
-st.caption("Ball-by-ball big data pipeline · Spark 4 · Delta Lake · Structured Streaming · MLlib · "
-           "data: simulated leagues in Cricsheet format")
+SIMULATED = any(CFG.path("ground_truth").glob("players_*.csv"))
+st.caption("Ball-by-ball big data pipeline · Spark 4 · Delta Lake · Structured Streaming · MLlib · data: "
+           + ("simulated leagues in Cricsheet format" if SIMULATED
+              else "real ball-by-ball data from Cricsheet (cricsheet.org)"))
 
 excitement = table("gold", "match_excitement")
 if excitement.empty:

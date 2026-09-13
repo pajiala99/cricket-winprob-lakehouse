@@ -1,11 +1,15 @@
-"""Live ball-by-ball feed: plays a brand-new match and publishes every delivery as an event.
+"""Live ball-by-ball feed: publishes a match one delivery at a time as events.
+
+Two sources:
+  * simulate (default): a brand-new match between the current squads of a simulated league, so the model
+    has never seen it
+  * --replay <match_id | latest-final>: an existing match from silver.deliveries, e.g. the latest real final
 
 Events land in data/stream/inbox/<match_id>/ as one small JSON file per ball, written atomically
 (temp file + rename), which Spark Structured Streaming consumes like a message-queue topic.
-The match is contested by the current squads of a simulated league (with their latent skills) at the home
-ground of the first team, so the model has never seen this match.
 
   python -m cricklake.streaming.live_feed --interval 0.5
+  CRICKLAKE_CONFIG=conf/real.yaml python -m cricklake.streaming.live_feed --replay latest-final
 """
 
 from __future__ import annotations
@@ -13,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import os
 import random
 import time
@@ -26,11 +31,19 @@ from cricklake.ingest import simulator as sim
 log = logging.getLogger("cricklake.live_feed")
 
 
+def _clean(value):
+    """JSON-safe scalar: pandas/numpy NaN and numpy types become plain Python values."""
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return None
+    return value.item() if hasattr(value, "item") else value
+
+
 def load_league(league: str):
     cfg = get_settings()
     files = sorted(cfg.path("ground_truth").glob("players_*.csv"))
     if not files:
-        raise SystemExit("No simulated squads found: run `python -m cricklake.orchestrate` first")
+        raise SystemExit("No simulated squads here (real-data profile?). Replay a stored match instead: "
+                         "--replay latest-final")
     gt = pd.concat(pd.read_csv(f) for f in files)
     gt = gt[gt.league == league]
     season = gt.season.max()
@@ -94,31 +107,68 @@ def to_events(match: dict, match_id: str, league: str, season_year: int, gender:
     return events
 
 
+def simulated_match(league: str, seed: int | None) -> tuple[str, list[dict], str]:
+    rng = random.Random(seed)
+    season, squads = load_league(league)
+    home, away = rng.sample(sorted(squads), 2)
+    year = int(str(season)[:4])
+    template = next(t for t in sim.LEAGUE_TEMPLATES if league.startswith(t[0]))
+    venue = home_ground(home)
+    teams = [sim.Team(name, sim.slug(name), venue.city, venue, squads[name]) for name in (home, away)]
+    era = -0.10 + 0.28 * (year - sim.FIRST_SEASON) / (sim.LAST_SEASON - sim.FIRST_SEASON)
+    match, _, _, _ = sim.simulate_match(rng, league, template[1], str(season), year,
+                                        {"name": league, "stage": "Live"}, teams[0], teams[1], date.today(), era)
+    match_id = "LIVE-" + datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    outcome = match["info"]["outcome"]
+    result = outcome.get("winner") or outcome.get("eliminator") or outcome.get("result")
+    return match_id, to_events(match, match_id, league, year, template[1], venue.name), \
+        f"{home} vs {away} at {venue.name} (simulated; won by {result})"
+
+
+def replayed_match(match_ref: str) -> tuple[str, list[dict], str]:
+    """Replay a stored match (real or simulated) from silver, in ball order."""
+    import pyarrow.dataset as ds
+    from deltalake import DeltaTable
+
+    cfg = get_settings()
+    matches = DeltaTable(cfg.table("silver", "matches")).to_pandas(
+        columns=["match_id", "match_date", "stage", "event_name", "season_year", "winner", "match_type"])
+    if match_ref == "latest-final":
+        finals = matches[(matches.stage == "Final") & matches.match_type.isin(["T20", "IT20"])]
+        if finals.empty:
+            raise SystemExit("No finals in silver.matches; pass an explicit match id")
+        match_ref = finals.sort_values("match_date").iloc[-1].match_id
+    info = matches[matches.match_id == match_ref]
+    if info.empty:
+        raise SystemExit(f"match {match_ref} not found in silver.matches")
+    balls = (DeltaTable(cfg.table("silver", "deliveries")).to_pyarrow_dataset()
+             .to_table(filter=ds.field("match_id") == match_ref).to_pandas())
+    balls = balls[~balls.is_super_over & balls.innings_no.isin([1, 2])].sort_values(["innings_no", "delivery_no"])
+    stream_id = f"REPLAY-{match_ref}-{datetime.now(UTC):%H%M%S}"
+    fields = ["event_name", "season_year", "gender", "venue", "innings_no", "batting_team", "bowling_team", "over_no",
+              "delivery_no", "batter", "bowler", "runs_batter", "runs_extras", "runs_total", "is_legal", "is_wicket",
+              "wicket_kind", "player_out", "target_runs", "target_overs"]
+    events = [{"event_id": f"{stream_id}-{int(r['innings_no'])}-{int(r['delivery_no'])}", "match_id": stream_id,
+               **{f: _clean(r[f]) for f in fields}} for r in balls.to_dict("records")]
+    m = info.iloc[0]
+    return stream_id, events, (f"replay of {m.event_name} {m.season_year} {m.stage or ''} "
+                               f"{balls.batting_team.iloc[0]} vs {balls.bowling_team.iloc[0]} (won by {m.winner})")
+
+
 def main(argv=None) -> None:
-    ap = argparse.ArgumentParser(description="Publish a simulated live match ball by ball")
-    ap.add_argument("--league", default="Himalayan Premier League")
+    ap = argparse.ArgumentParser(description="Publish a live match ball by ball")
+    ap.add_argument("--league", default="Himalayan Premier League", help="simulated league to play a new match in")
+    ap.add_argument("--replay", metavar="MATCH_ID", help="replay a stored match instead; 'latest-final' picks one")
     ap.add_argument("--interval", type=float, default=0.5, help="seconds between balls (0 = burst)")
     ap.add_argument("--seed", type=int, default=None)
     args = ap.parse_args(argv)
 
     cfg = get_settings()
-    rng = random.Random(args.seed)
-    season, squads = load_league(args.league)
-    home, away = rng.sample(sorted(squads), 2)
-    year = int(str(season)[:4])
-    template = next(t for t in sim.LEAGUE_TEMPLATES if args.league.startswith(t[0]))
-    venue = home_ground(home)
-    teams = [sim.Team(name, sim.slug(name), venue.city, venue, squads[name]) for name in (home, away)]
-    era = -0.10 + 0.28 * (year - sim.FIRST_SEASON) / (sim.LAST_SEASON - sim.FIRST_SEASON)
-    match, winner, _, _ = sim.simulate_match(rng, args.league, template[1], str(season), year,
-                                             {"name": args.league, "stage": "Live"}, teams[0], teams[1],
-                                             date.today(), era)
-    match_id = "LIVE-" + datetime.now(UTC).strftime("%Y%m%d%H%M%S")
-    events = to_events(match, match_id, args.league, year, template[1], venue.name)
-
+    match_id, events, description = replayed_match(args.replay) if args.replay \
+        else simulated_match(args.league, args.seed)
     inbox = cfg.stream_inbox / match_id
     inbox.mkdir(parents=True, exist_ok=True)
-    log.info("LIVE %s: %s vs %s at %s, %d balls to publish -> %s", match_id, home, away, venue.name, len(events), inbox)
+    log.info("LIVE %s: %s, %d balls to publish -> %s", match_id, description, len(events), inbox)
     for event in events:
         event["event_ts"] = datetime.now(UTC).isoformat()
         name = f"{event['innings_no']}-{event['delivery_no']:03d}.json"
@@ -127,8 +177,7 @@ def main(argv=None) -> None:
         os.replace(tmp, inbox / name)
         if args.interval:
             time.sleep(args.interval)
-    outcome = match["info"]["outcome"]
-    log.info("Match over: %s", outcome.get("winner") or outcome.get("eliminator") or outcome.get("result"))
+    log.info("Feed finished: %s", description)
 
 
 if __name__ == "__main__":

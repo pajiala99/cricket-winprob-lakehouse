@@ -1,0 +1,27 @@
+# Real-data profile: the same pipeline on real Cricsheet ball-by-ball data, in its own lakehouse.
+#   make real-download real-pipeline real-dashboard
+extends: pipeline.yaml
+
+paths:
+  landing: data/real/landing
+  lakehouse: data/real/lakehouse
+  checkpoints: data/real/checkpoints
+  models: data/real/models
+  stream_inbox: data/real/stream/inbox
+  runs: data/real/runs
+  ground_truth: data/real/ground_truth   # stays empty: nobody knows a real player's "true" skill
+
+source:
+  # cricsheet.org blocks automated downloads; this public Hugging Face dataset mirrors its per-competition files
+  mirror_repo: jeyasuryaur/cricket-data-by-cricsheet
+  competitions:
+    - ipl_json     # Indian Premier League
+    - t20s_json    # T20 internationals
+    - it20s_json   # T20 internationals (older Cricsheet grouping)
+    - bbl_json     # Big Bash League
+    - wbb_json     # Women's Big Bash League
+    - psl_json     # Pakistan Super League
+    - cpl_json     # Caribbean Premier League
+    - sat_json     # SA20
+    - ilt_json     # ILT20
+    - mlc_json     # Major League Cricket
