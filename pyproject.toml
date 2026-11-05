@@ -28,6 +28,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]  # tests import tests.conftest; plain `pytest` (as in CI) needs the repo root on sys.path
 addopts = "-q"
 
 [tool.ruff]
