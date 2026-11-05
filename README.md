@@ -9,6 +9,11 @@ validated player-impact metric (Win Probability Added).**
 left, wickets in hand and runs needed, showing the real-data model's own predictions for 39,920 chase states. It runs in
 the browser, from a file Spark precomputed (see the [model card](#model-card-real-data-champion)).
 
+**On real data:** 8,852 men's and women's T20 matches (February 2005 to April 2026, 2,026,949 balls). On 2025–26
+matches the model never saw, it scores AUC **0.845**, Brier skill score **35.8%** and calibration error **1.0 pp**
+([details](#real-cricsheet-data)). The simulated league below adds what real data can't: players with hidden skills,
+to check the impact metric against.
+
 `PySpark 4.2` · `Delta Lake 4.4` · `Spark Structured Streaming` · `Spark MLlib` · `Airflow 3` · `Streamlit` · `pytest` · `GitHub Actions`
 
 Most portfolio pipelines stop at "load CSV, aggregate, plot". This one covers the whole lifecycle a data
@@ -80,7 +85,9 @@ flowchart LR
 
 ---
 
-## Results (full local run on a 10-core laptop)
+## Results on the simulated league (full local run on a 10-core laptop)
+
+Real-data results are under [Real Cricsheet data](#real-cricsheet-data).
 
 <!-- RESULTS:START -->
 | | |
