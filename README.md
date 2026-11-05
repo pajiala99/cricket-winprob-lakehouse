@@ -5,6 +5,10 @@ validated player-impact metric (Win Probability Added).**
 
 [![ci](https://github.com/pajiala99/cricket-winprob-lakehouse/actions/workflows/ci.yml/badge.svg)](https://github.com/pajiala99/cricket-winprob-lakehouse/actions/workflows/ci.yml)
 
+**Live demo: [what does the model make of this chase?](https://pajiala99.github.io/#demo-cricket)** Sliders for overs
+left, wickets in hand and runs needed, showing the real-data model's own predictions for 39,920 chase states. It runs in
+the browser, from a file Spark precomputed (see the [model card](#model-card-real-data-champion)).
+
 `PySpark 4.2` · `Delta Lake 4.4` · `Spark Structured Streaming` · `Spark MLlib` · `Airflow 3` · `Streamlit` · `pytest` · `GitHub Actions`
 
 Most portfolio pipelines stop at "load CSV, aggregate, plot". This one covers the whole lifecycle a data
@@ -217,6 +221,7 @@ src/cricklake/
   pipelines/impact.py               win probability, WPA, leverage, excitement
   ml/train.py                       GBT vs logistic regression, model card
   ml/validate_wpa.py                WPA vs ground truth
+  ml/export_grid.py                 the model's predictions over 39,920 chase states, for the live demo
   streaming/live_feed.py            publishes a new match ball by ball
   streaming/state.py                per-match running totals (pure Python)
   streaming/live_scoring.py         Structured Streaming scorer
@@ -278,6 +283,31 @@ Real data also exposed three problems the simulation never produced:
   file per match.
 
 Data: [Cricsheet](https://cricsheet.org). Check Cricsheet's licence terms before redistributing the data.
+
+---
+
+## Model card (real-data champion)
+
+| | |
+|---|---|
+| **Predicts** | The probability that the batting side wins, after every ball of a 20-over match (men's and women's) |
+| **Model** | Spark MLlib gradient-boosted trees (80 trees, depth 6, step 0.1, subsampling 0.8), chosen over logistic regression on validation log loss |
+| **Data** | 8,852 real Cricsheet matches, February 2005 to April 2026. Split by date: train to 2023 (1,378,362 balls), validate on 2024 (290,249), test on 2025–26 (355,308) |
+| **Inputs** | 16 match-state features: score, wickets, balls left, run rates, runs and wickets in the last 30 balls, the venue's as-of par score, target, runs needed, required rate, rate gap, par gap, a women's-match flag |
+| **Test results** | Log loss 0.476, Brier skill score 35.9%, AUC 0.845, calibration error 0.8 pp, accuracy 75.1% (61% early in the first innings, 90% in the last five overs of a chase) |
+
+**Limits**
+
+- It knows the match state, not the teams: no batting line-up, players, form or toss.
+- A tree ensemble predicts in steps, so one run can move the probability by several points, and ΔWP inherits
+  those jumps.
+- **A feature flaw the live demo exposed.** `rate_gap` is 0.0 for every first-innings ball (737,202 training rows)
+  but almost never exactly 0 in a chase (1,003 rows), so the trees learned "exactly 0" as a first-innings signal. In
+  one chase state the model gives 81.2% at a rate gap of −0.01, 65.1% at exactly 0 and 75.4% at +0.01. The fix is a
+  value outside the chase range for the first innings, then retraining.
+- The demo needs inputs a slider can't set. `python -m cricklake.ml.export_grid` fills them with the median of real
+  training chases at the same over with the same wickets down, and marks states that fewer than 25 real chases came
+  near, where the model is extrapolating.
 
 ---
 
