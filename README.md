@@ -309,3 +309,7 @@ make lint
   scheduler and executor.
 - Model ideas: batting-lineup strength, bowler overs remaining, team form, and smoother tree outputs (monotonic
   constraints) so ΔWP jumps less.
+
+---
+
+**Hardik Pajiala** · [LinkedIn](https://linkedin.com/in/hardik-pajiala) · [Portfolio](https://pajiala99.github.io) · [GitHub](https://github.com/pajiala99)
