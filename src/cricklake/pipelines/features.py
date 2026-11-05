@@ -28,6 +28,10 @@ LABEL = "batting_team_won"
 DEFAULT_PAR = 160.0
 PAR_WINDOW = 20          # matches
 RECENT_WINDOW = 30       # deliveries
+# rate_gap of a first-innings ball. It must be a value no chase can take: with 0, the trees learned "exactly 0" as a
+# first-innings signal and read a chase exactly on the required rate as partly a first innings. A chase's rate gap is
+# at most 36, because the required rate is capped at 36 and the run rate is never negative.
+FIRST_INNINGS_RATE_GAP = 40.0
 
 IDENTITY = ["match_id", "match_date", "season_year", "event_name", "gender", "venue", "innings_no",
             "batting_team", "bowling_team", "winner", "result_type"]
@@ -83,7 +87,8 @@ def add_state_features(df: DataFrame) -> DataFrame:
                 F.lit(36.0)))
     return (
         df.withColumn("required_rate", F.when(inn2, rrr).otherwise(F.lit(-1.0)))
-        .withColumn("rate_gap", F.when(inn2, F.col("required_rate") - F.col("run_rate")).otherwise(F.lit(0.0)))
+        .withColumn("rate_gap", F.when(inn2, F.col("required_rate") - F.col("run_rate"))
+                    .otherwise(F.lit(FIRST_INNINGS_RATE_GAP)))
         .withColumn("par_gap", F.when(inn2, F.col("target") - F.col("venue_par"))
                     .otherwise(F.col("cum_runs") - F.col("venue_par") * F.col("legal_balls") / F.col("max_balls")))
         .withColumn("is_female", F.coalesce((F.col("gender") == "female").cast("int"), F.lit(0)))

@@ -89,29 +89,34 @@ flowchart LR
 | **Full clean build** | 12 orchestrated tasks in **180 s** (Spark local mode); model training is the largest step at 69 s |
 | **Incremental day-2 load** | 205 documents (109 new matches + 96 corrected revisions) MERGEd; **0 matches lost balls, 0 duplicate ball keys** |
 | **Data quality** | 12/12 silver and 7/7 gold checks pass; 8 truncated files rejected at landing |
-| **Model on unseen 2025–26 seasons** | Champion gradient-boosted trees: log loss **0.556**, Brier skill score **23.8%**, AUC **0.777**, calibration error **1.8 pp** |
-| **Challenger** | Logistic regression: log loss 0.558, AUC 0.772, calibration error 2.1 pp (lost on validation log loss, 0.562 vs 0.555) |
-| **Accuracy as the match unfolds** | 58.5% after the first 5 overs → **83.7%** in the last 5 overs of a chase |
-| **Tests** | 14 pytest tests (unit, Delta integration, streaming/batch parity) pass; ruff clean |
+| **Model on unseen 2025–26 seasons** | Champion gradient-boosted trees: log loss **0.556**, Brier skill score **23.6%**, AUC **0.775**, calibration error **2.2 pp** |
+| **Challenger** | Logistic regression: log loss 0.558, AUC 0.772, calibration error 2.0 pp (lost on validation log loss, 0.562 vs 0.557) |
+| **Accuracy as the match unfolds** | 58.1% after the first 5 overs → **83.5%** in the last 5 overs of a chase |
+| **Tests** | 17 pytest tests (unit, Delta integration, streaming/batch parity) pass; ruff clean |
 
 **Does WPA measure real skill?** Spearman rank correlation between each metric and the simulator's hidden
 player skill (1 = perfect ranking):
 
 | Ranking players by… | ρ |
 |---|---|
-| Batters: **WPA per ball** | **0.36** |
+| Batters: **WPA per ball** | **0.40** |
 | Batters: strike rate | 0.26 |
 | Bowlers: wickets per ball | 0.69 |
-| Bowlers: **WPA per ball** | **0.39** |
+| Bowlers: **WPA per ball** | **0.35** |
 | Bowlers: economy rate | 0.12 |
-| Clutch ability (high-leverage WPA beyond ordinary-ball WPA): batters / bowlers | **0.37 / 0.39** |
+| Clutch ability (high-leverage WPA beyond ordinary-ball WPA): batters / bowlers | **0.35 / 0.36** |
 
 WPA beats strike rate and economy because it knows the game situation: a finisher's strike rate is inflated
 by *when* he bats, and a death bowler's economy by *when* he bowls. Wickets per ball still ranks bowlers best,
 so impact metrics complement traditional statistics rather than replace them. Clutch ability is detectable
-but noisy (ρ ≈ 0.4). The validation step also exposed a flaw in the simulator itself: captains used up their
+but noisy (ρ ≈ 0.35). The validation step also exposed a flaw in the simulator itself: captains used up their
 best bowlers early, so wickets correlated *negatively* with skill. Captains now keep their strike bowlers'
 overs for the death.
+
+These figures come from one fresh build (5 Nov 2026). The boosted trees vary from build to build: training twice
+on the same table gives the same model, but two full builds of identical data gave test AUCs of 0.777 and 0.775,
+and WPA correlations up to 0.08 apart, so read the second decimal as noise. The rankings above held in all three
+builds measured.
 <!-- RESULTS:END -->
 
 ---
@@ -262,9 +267,9 @@ rebuild takes 3 minutes, and all 19 data-quality checks pass.
 | On unseen 2025–26 matches | Gradient-boosted trees (champion) | Logistic regression |
 |---|---|---|
 | Log loss | **0.476** | 0.500 |
-| Brier skill score | **35.9%** | 32.0% |
+| Brier skill score | **35.8%** | 31.9% |
 | AUC | **0.845** | 0.825 |
-| Calibration error | **0.8 pp** | 1.2 pp |
+| Calibration error | **1.0 pp** | 1.3 pp |
 
 Accuracy climbs from 61% early in the first innings to 90% in the last five overs of a chase. These scores
 come from a different dataset than the simulated results above, so the two sets aren't directly comparable.
@@ -294,20 +299,34 @@ Data: [Cricsheet](https://cricsheet.org). Check Cricsheet's licence terms before
 | **Model** | Spark MLlib gradient-boosted trees (80 trees, depth 6, step 0.1, subsampling 0.8), chosen over logistic regression on validation log loss |
 | **Data** | 8,852 real Cricsheet matches, February 2005 to April 2026. Split by date: train to 2023 (1,378,362 balls), validate on 2024 (290,249), test on 2025–26 (355,308) |
 | **Inputs** | 16 match-state features: score, wickets, balls left, run rates, runs and wickets in the last 30 balls, the venue's as-of par score, target, runs needed, required rate, rate gap, par gap, a women's-match flag |
-| **Test results** | Log loss 0.476, Brier skill score 35.9%, AUC 0.845, calibration error 0.8 pp, accuracy 75.1% (61% early in the first innings, 90% in the last five overs of a chase) |
+| **Test results** | Log loss 0.476, Brier skill score 35.8%, AUC 0.845, calibration error 1.0 pp, accuracy 75.2% (61% early in the first innings, 90% in the last five overs of a chase) |
 
 **Limits**
 
 - It knows the match state, not the teams: no batting line-up, players, form or toss.
 - A tree ensemble predicts in steps, so one run can move the probability by several points, and ΔWP inherits
   those jumps.
-- **A feature flaw the live demo exposed.** `rate_gap` is 0.0 for every first-innings ball (737,202 training rows)
-  but almost never exactly 0 in a chase (1,003 rows), so the trees learned "exactly 0" as a first-innings signal. In
-  one chase state the model gives 81.2% at a rate gap of −0.01, 65.1% at exactly 0 and 75.4% at +0.01. The fix is a
-  value outside the chase range for the first innings, then retraining.
 - The demo needs inputs a slider can't set. `python -m cricklake.ml.export_grid` fills them with the median of real
   training chases at the same over with the same wickets down, and marks states that fewer than 25 real chases came
   near, where the model is extrapolating.
+
+**Fixed: a feature flaw the live demo exposed.** `rate_gap` (required rate minus run rate) used to be 0.0 for every
+first-innings ball: 727,684 training rows, against 1,000 chase balls that sat exactly on the required rate. The trees
+learned "exactly 0" as a first-innings signal, so the demo's line dipped wherever a chase was exactly on the required
+rate. First-innings balls now get 40, which no chase can reach: the required rate is capped at 36 and the run rate is
+never negative. (−1, the value `required_rate` uses, would have collided with 334 chase balls running exactly one run
+an over ahead.) After retraining:
+
+| | Before | After |
+|---|---|---|
+| 10 overs left, 70/3, 70 needed, at a rate gap of −0.01 / 0 / +0.01 | 81.2% / 65.1% / 75.4% | 88.4% / 87.5% / 87.5% |
+| Demo states exactly on the required rate that dip below both neighbours | 59 of 91 | 2 of 91 |
+| 215 test-season chase balls exactly on the required rate (the chase won 63.7%): mean prediction | 53.2% | 63.3% |
+| Test log loss, Brier skill score, AUC | 0.476, 35.9%, 0.845 | 0.476, 35.8%, 0.845 |
+| Test calibration error, accuracy | 0.8 pp, 75.1% | 1.0 pp, 75.2% |
+
+The overall scores barely move because only about 1 test ball in 1,650 sits exactly on the required rate. Calibration
+error rose on the test seasons but fell on the validation season (1.1 to 1.0 pp).
 
 ---
 
@@ -323,7 +342,7 @@ make lint
 | `test_simulator.py` | probabilities valid, skills move outcomes, matches internally consistent, deterministic seeds |
 | `test_pack.py` | incremental + idempotent packing, malformed files rejected, revisions re-emitted |
 | `test_silver.py` | every ball exploded, venue normalisation, revision replaces balls atomically |
-| `test_features_parity.py` | overs notation, chase maths, **streaming features == batch features** |
+| `test_features_parity.py` | overs notation, chase maths, a first-innings rate gap no chase can reach, **streaming features == batch features** |
 | `test_quality.py` | blocking vs warning checks, recorded results, streaming state window + JSON round trip, DAG compiles |
 
 ## Limitations and next steps

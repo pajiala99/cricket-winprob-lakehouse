@@ -6,6 +6,10 @@ from pyspark.sql import functions as F
 from cricklake.pipelines.features import FEATURES, add_state_features, build_ball_state, overs_to_balls
 from cricklake.streaming.state import MatchState
 
+STATE = ("innings_no int, cum_runs int, cum_wickets int, legal_balls int, runs_last_30 int, wickets_last_30 int, "
+         "venue_par double, target_runs int, target_overs double, first_innings_total int, scheduled_overs int, "
+         "gender string, result_type string, winner string, batting_team string")
+
 
 def test_overs_notation(spark):
     row = spark.createDataFrame([(16.4,), (20.0,)], ["o"]).select(overs_to_balls(F.col("o")).alias("b")).collect()
@@ -13,15 +17,22 @@ def test_overs_notation(spark):
 
 
 def test_chase_features_for_known_state(spark):
-    df = spark.createDataFrame(
-        [(2, 150, 5, 90, 20, 5, 170.0, 181, 20.0, 180, 20, "male", "win", "A", "A")],
-        "innings_no int, cum_runs int, cum_wickets int, legal_balls int, runs_last_30 int, wickets_last_30 int, "
-        "venue_par double, target_runs int, target_overs double, first_innings_total int, scheduled_overs int, "
-        "gender string, result_type string, winner string, batting_team string")
+    df = spark.createDataFrame([(2, 150, 5, 90, 20, 5, 170.0, 181, 20.0, 180, 20, "male", "win", "A", "A")], STATE)
     r = add_state_features(df).first()
     assert r.balls_remaining == 30 and r.runs_needed == 31 and r.wickets_in_hand == 5
     assert abs(r.required_rate - 6.2) < 1e-9 and abs(r.run_rate - 10.0) < 1e-9
     assert r.par_gap == 11.0 and r.batting_team_won == 1
+
+
+def test_first_innings_rate_gap_is_no_chase_value(spark):
+    # 70/3 after 10 overs needing 70 is exactly on the required rate; 0/9 needing 400 off the last over is the largest
+    # gap a chase can have (required rate capped at 36, run rate 0). A first-innings ball must look like neither.
+    df = spark.createDataFrame([(2, 70, 3, 60, 33, 1, 159.0, 140, 20.0, 139, 20, "male", "win", "A", "A"),
+                                (2, 0, 9, 114, 0, 5, 159.0, 400, 20.0, 399, 20, "male", "win", "B", "A"),
+                                (1, 70, 3, 60, 33, 1, 159.0, None, None, None, 20, "male", "win", "A", "A")], STATE)
+    on_rate, hopeless, first = add_state_features(df).collect()
+    assert on_rate.rate_gap == 0.0 and hopeless.rate_gap == 36.0
+    assert first.rate_gap > hopeless.rate_gap
 
 
 def test_streaming_state_reproduces_batch_features(spark, lakehouse):
