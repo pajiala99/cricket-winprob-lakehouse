@@ -29,6 +29,16 @@ from cricklake.pipelines.features import FEATURES, LABEL
 log = logging.getLogger("cricklake.train")
 EPS = 1e-6
 MODEL_DIR = "win_prob"
+ROW_KEY = ("match_id", "innings_no", "delivery_no")
+
+
+def canonical_order(df: DataFrame, partitions: int) -> DataFrame:
+    """Put every ball in the same partition and position, whatever the table's file layout or the core count.
+
+    GBT row subsampling and split binning sample partition by partition, so the same rows read in another order
+    (a rebuilt gold table, a machine with more or fewer cores) would otherwise train a different model.
+    """
+    return df.repartition(partitions, "match_id").sortWithinPartitions(*ROW_KEY)
 
 
 def with_win_prob(pred: DataFrame) -> DataFrame:
@@ -79,7 +89,8 @@ def run(spark: SparkSession) -> dict:
     hp = cfg["model"]["gbt"]
     data = (spark.read.format("delta").load(cfg.table("gold", "ball_state"))
             .filter(F.col(LABEL).isNotNull())
-            .select(*FEATURES, LABEL, "split", "match_id", "match_date")
+            .select(*FEATURES, LABEL, "split", "match_id", "match_date", "delivery_no")
+            .transform(lambda df: canonical_order(df, cfg["spark"]["shuffle_partitions"]))
             .persist())
     counts = {r["split"]: r["count"] for r in data.groupBy("split").count().collect()}
     date_ranges = {r["split"]: (str(r["lo"]), str(r["hi"])) for r in
