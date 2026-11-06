@@ -10,7 +10,7 @@ left, wickets in hand and runs needed, showing the real-data model's own predict
 the browser, from a file Spark precomputed (see the [model card](#model-card-real-data-champion)).
 
 **On real data:** 8,852 men's and women's T20 matches (February 2005 to April 2026, 2,026,949 balls). On 2025–26
-matches the model never saw, it scores AUC **0.845**, Brier skill score **35.8%** and calibration error **1.0 pp**
+matches the model never saw, it scores AUC **0.844**, Brier skill score **35.7%** and calibration error **1.3 pp**
 ([details](#real-cricsheet-data)). The simulated league below adds what real data can't: players with hidden skills,
 to check the impact metric against.
 
@@ -93,37 +93,38 @@ Real-data results are under [Real Cricsheet data](#real-cricsheet-data).
 | | |
 |---|---|
 | **Volume** | 7,009 nested JSON match documents → **1,667,611 ball-by-ball rows** (1,936 players, 15 seasons, 8 competitions) |
-| **Full clean build** | 12 orchestrated tasks in **180 s** (Spark local mode); model training is the largest step at 69 s |
+| **Full clean build** | 12 orchestrated tasks in **183 s** (Spark local mode); model training is the largest step at 85 s |
 | **Incremental day-2 load** | 205 documents (109 new matches + 96 corrected revisions) MERGEd; **0 matches lost balls, 0 duplicate ball keys** |
 | **Data quality** | 12/12 silver and 7/7 gold checks pass; 8 truncated files rejected at landing |
-| **Model on unseen 2025–26 seasons** | Champion gradient-boosted trees: log loss **0.556**, Brier skill score **23.6%**, AUC **0.775**, calibration error **2.2 pp** |
-| **Challenger** | Logistic regression: log loss 0.558, AUC 0.772, calibration error 2.0 pp (lost on validation log loss, 0.562 vs 0.557) |
-| **Accuracy as the match unfolds** | 58.1% after the first 5 overs → **83.5%** in the last 5 overs of a chase |
-| **Tests** | 17 pytest tests (unit, Delta integration, streaming/batch parity) pass; ruff clean |
+| **Model on unseen 2025–26 seasons** | Champion gradient-boosted trees: log loss **0.555**, Brier skill score **23.9%**, AUC **0.777**, calibration error **1.9 pp** |
+| **Challenger** | Logistic regression: log loss 0.558, AUC 0.772, calibration error 2.0 pp (lost on validation log loss, 0.562 vs 0.556) |
+| **Accuracy as the match unfolds** | 58.7% after the first 5 overs → **83.8%** in the last 5 overs of a chase |
+| **Tests** | 19 pytest tests (unit, Delta integration, streaming/batch parity, training reproducibility) pass; ruff clean |
 
 **Does WPA measure real skill?** Spearman rank correlation between each metric and the simulator's hidden
 player skill (1 = perfect ranking):
 
 | Ranking players by… | ρ |
 |---|---|
-| Batters: **WPA per ball** | **0.40** |
+| Batters: **WPA per ball** | **0.39** |
 | Batters: strike rate | 0.26 |
 | Bowlers: wickets per ball | 0.69 |
 | Bowlers: **WPA per ball** | **0.35** |
 | Bowlers: economy rate | 0.12 |
-| Clutch ability (high-leverage WPA beyond ordinary-ball WPA): batters / bowlers | **0.35 / 0.36** |
+| Clutch ability (high-leverage WPA beyond ordinary-ball WPA): batters / bowlers | **0.32 / 0.38** |
 
 WPA beats strike rate and economy because it knows the game situation: a finisher's strike rate is inflated
 by *when* he bats, and a death bowler's economy by *when* he bowls. Wickets per ball still ranks bowlers best,
 so impact metrics complement traditional statistics rather than replace them. Clutch ability is detectable
-but noisy (ρ ≈ 0.35). The validation step also exposed a flaw in the simulator itself: captains used up their
+but noisy (ρ 0.32 for batters, 0.38 for bowlers). The validation step also exposed a flaw in the simulator itself: captains used up their
 best bowlers early, so wickets correlated *negatively* with skill. Captains now keep their strike bowlers'
 overs for the death.
 
-These figures come from one fresh build (5 Nov 2026). The boosted trees vary from build to build: training twice
-on the same table gives the same model, but two full builds of identical data gave test AUCs of 0.777 and 0.775,
-and WPA correlations up to 0.08 apart, so read the second decimal as noise. The rankings above held in all three
-builds measured.
+These figures come from a fresh build on 6 Nov 2026, and they are reproducible: three fresh builds gave the same
+trees and the same WPA correlations to every digit. Earlier versions were not. Spark's boosted trees sample rows
+partition by partition, so the same data in another file layout, or on a laptop with a different number of cores,
+trained a different model (test AUC from 0.775 to 0.780 on one table). Training now puts the rows in a fixed order
+first. The rankings above held in every build measured.
 <!-- RESULTS:END -->
 
 ---
@@ -269,14 +270,14 @@ make real-live-feed
 
 **Results on real data.** The build covers 8,852 men's and women's matches from February 2005 to April 2026
 (2,026,949 balls). The model trains on matches up to 2023, is tuned on 2024 and tested on 2025–26. The full
-rebuild takes 3 minutes, and all 19 data-quality checks pass.
+rebuild takes about 4 minutes, and all 19 data-quality checks pass.
 
 | On unseen 2025–26 matches | Gradient-boosted trees (champion) | Logistic regression |
 |---|---|---|
-| Log loss | **0.476** | 0.500 |
-| Brier skill score | **35.8%** | 31.9% |
-| AUC | **0.845** | 0.825 |
-| Calibration error | **1.0 pp** | 1.3 pp |
+| Log loss | **0.477** | 0.500 |
+| Brier skill score | **35.7%** | 31.9% |
+| AUC | **0.844** | 0.825 |
+| Calibration error | **1.3 pp** | 1.3 pp |
 
 Accuracy climbs from 61% early in the first innings to 90% in the last five overs of a chase. These scores
 come from a different dataset than the simulated results above, so the two sets aren't directly comparable.
@@ -303,10 +304,10 @@ Data: [Cricsheet](https://cricsheet.org). Check Cricsheet's licence terms before
 | | |
 |---|---|
 | **Predicts** | The probability that the batting side wins, after every ball of a 20-over match (men's and women's) |
-| **Model** | Spark MLlib gradient-boosted trees (80 trees, depth 6, step 0.1, subsampling 0.8), chosen over logistic regression on validation log loss |
+| **Model** | Spark MLlib gradient-boosted trees (80 trees, depth 6, step 0.1, subsampling 0.8, rows in a fixed order so every rebuild gives the same trees), chosen over logistic regression on validation log loss |
 | **Data** | 8,852 real Cricsheet matches, February 2005 to April 2026. Split by date: train to 2023 (1,378,362 balls), validate on 2024 (290,249), test on 2025–26 (355,308) |
 | **Inputs** | 16 match-state features: score, wickets, balls left, run rates, runs and wickets in the last 30 balls, the venue's as-of par score, target, runs needed, required rate, rate gap, par gap, a women's-match flag |
-| **Test results** | Log loss 0.476, Brier skill score 35.8%, AUC 0.845, calibration error 1.0 pp, accuracy 75.2% (61% early in the first innings, 90% in the last five overs of a chase) |
+| **Test results** | Log loss 0.477, Brier skill score 35.7%, AUC 0.844, calibration error 1.3 pp, accuracy 74.9% (61% early in the first innings, 90% in the last five overs of a chase) |
 
 **Limits**
 
@@ -324,16 +325,18 @@ rate. First-innings balls now get 40, which no chase can reach: the required rat
 never negative. (−1, the value `required_rate` uses, would have collided with 334 chase balls running exactly one run
 an over ahead.) After retraining:
 
-| | Before | After |
+| | Before | After (current model) |
 |---|---|---|
-| 10 overs left, 70/3, 70 needed, at a rate gap of −0.01 / 0 / +0.01 | 81.2% / 65.1% / 75.4% | 88.4% / 87.5% / 87.5% |
-| Demo states exactly on the required rate that dip below both neighbours | 59 of 91 | 2 of 91 |
-| 215 test-season chase balls exactly on the required rate (the chase won 63.7%): mean prediction | 53.2% | 63.3% |
-| Test log loss, Brier skill score, AUC | 0.476, 35.9%, 0.845 | 0.476, 35.8%, 0.845 |
-| Test calibration error, accuracy | 0.8 pp, 75.1% | 1.0 pp, 75.2% |
+| 10 overs left, 70/3, 70 needed, at a rate gap of −0.01 / 0 / +0.01 | 81.2% / 65.1% / 75.4% | 85.8% / 85.8% / 85.8% |
+| Demo states exactly on the required rate that dip below both neighbours | 59 of 91 | 3 of 91 |
+| 215 test-season chase balls exactly on the required rate (the chase won 63.7%): mean prediction | 53.2% | 62.1% |
+| Test log loss, Brier skill score, AUC | 0.476, 35.9%, 0.845 | 0.477, 35.7%, 0.844 |
+| Test calibration error, accuracy | 0.8 pp, 75.1% | 1.3 pp, 74.9% |
 
 The overall scores barely move because only about 1 test ball in 1,650 sits exactly on the required rate. Calibration
-error rose on the test seasons but fell on the validation season (1.1 to 1.0 pp).
+error rose on the test seasons but not on the validation season (1.07 to 1.05 pp). The After column is the
+current model, retrained on 6 Nov 2026 on a fixed row order (see the simulated results); that retrain alone moved test
+AUC by 0.001 and the on-the-rate prediction from 63.3% to 62.1%, and left the three dips each under 1.5 points.
 
 ---
 
